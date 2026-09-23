@@ -141,7 +141,11 @@ def register_error_handlers(app: Flask) -> None:
     def _handle_405(_err):
         request_id = _get_request_id()
         err = ValidationError("This HTTP method is not allowed for this endpoint.")
-        return jsonify(err.to_response(request_id)), err.http_status
+        # Use the actual 405 status here rather than err.http_status (400):
+        # this handler reformats Werkzeug's real "method not allowed" result,
+        # so the response must keep returning 405, not the ValidationError
+        # class's own default status.
+        return jsonify(err.to_response(request_id)), 405
 
     @app.errorhandler(Exception)
     def _handle_unexpected(err: Exception):

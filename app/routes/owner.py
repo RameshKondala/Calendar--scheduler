@@ -1,7 +1,7 @@
 """Owner-only routes (section 3.7). All require owner authorization."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request
 from marshmallow import ValidationError as MarshmallowValidationError

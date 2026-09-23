@@ -6,7 +6,7 @@ is rechecked immediately before event creation in the orchestrator.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from app.config_store.appointment_types import AppointmentType
 from app.gateways.outlook import OutlookGateway

@@ -8,7 +8,7 @@ violates business policy even if Outlook happens to be free then
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, time, timedelta
 
 from app.config_store.appointment_types import AppointmentType, AppointmentTypeStore
 from app.config_store.business_hours import BusinessHours

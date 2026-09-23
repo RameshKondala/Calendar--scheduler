@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date as date_, time as time_
 
-from marshmallow import Schema, ValidationError as MarshmallowValidationError, fields, validate
+from marshmallow import Schema, fields, validate
 
 ALLOWED_ACTORS = ("customer", "owner")
 ALLOWED_ACTIONS = ("find_availability", "list_schedule", "block_time", "clarify")
@@ -124,7 +124,6 @@ __all__ = [
     "AppointmentCreateSchema",
     "OwnerBlockCreateSchema",
     "AppointmentTypeUpdateSchema",
-    "MarshmallowValidationError",
     "SchedulingIntent",
     "SlotOption",
     "BookingCommand",

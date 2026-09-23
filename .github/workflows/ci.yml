@@ -1,0 +1,45 @@
+name: CI
+
+# Runs on every push and pull request, per Week 5 rubric requirement for a
+# functional CI pipeline. Deliberately simple: install, lint, test. No
+# deployment step is added -- Week 4 does not call for one (section 5.2,
+# "single managed web application"; deployment infra is out of scope here).
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    name: Lint and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          # Fails the build on real errors (syntax errors, undefined names,
+          # unused imports). Style-only issues are ignored via setup.cfg.
+          flake8 app config.py run.py tests
+
+      - name: Run tests with coverage
+        env:
+          FLASK_ENV: testing
+          OUTLOOK_GATEWAY: fake
+          OWNER_ACCESS_TOKEN: ci-test-token
+        run: |
+          pytest --cov-report=term-missing

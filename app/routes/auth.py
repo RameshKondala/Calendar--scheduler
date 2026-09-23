@@ -9,6 +9,7 @@ implementation lands.
 """
 from __future__ import annotations
 
+import hmac
 from functools import wraps
 
 from flask import current_app, request
@@ -21,7 +22,9 @@ def require_owner(view_func):
     def wrapper(*args, **kwargs):
         token = request.headers.get("Authorization", "")
         expected = current_app.config.get("OWNER_ACCESS_TOKEN")
-        if not expected or token != f"Bearer {expected}":
+        # hmac.compare_digest avoids leaking token length/prefix information
+        # via response-timing differences.
+        if not expected or not hmac.compare_digest(token, f"Bearer {expected}"):
             raise UnauthorizedError("Owner authentication is required for this endpoint.")
         return view_func(*args, **kwargs)
 

@@ -9,10 +9,9 @@ Graph returns a successful event creation result").
 """
 from __future__ import annotations
 
-import itertools
 import logging
-from datetime import datetime, timedelta
-from typing import Iterable
+import zlib
+from datetime import datetime
 
 from app.errors.handlers import SlotConflictError, ValidationError
 from app.gateways.outlook import OutlookEvent, OutlookGateway
@@ -28,10 +27,17 @@ from app.services.intent import IntentService
 
 logger = logging.getLogger(__name__)
 
-# In-memory auto-incrementing id generator for the local appointment id
-# surfaced in responses. This is a display convenience only -- the Outlook
-# event id remains the persistent, authoritative identifier (ADR-006).
-_local_id_counter = itertools.count(1)
+
+def _derive_local_id(outlook_event_id: str) -> int:
+    """Derive a stable, display-only integer id from the Outlook event id.
+
+    Per ADR-006 there is no local database, so no auto-incrementing id can
+    be persisted. The Outlook event id remains the actual persistent,
+    authoritative identifier -- this integer is only a display convenience
+    and is deterministic so that fetching the same appointment twice (e.g.
+    ``confirm_booking`` then ``get_appointment``) returns the same id.
+    """
+    return zlib.crc32(outlook_event_id.encode("utf-8"))
 
 
 class SchedulingOrchestrator:
@@ -64,29 +70,25 @@ class SchedulingOrchestrator:
         return self._availability_service.find_options(appointment_type, windows, max_options=max_options)
 
     def confirm_booking(self, command: BookingCommand) -> AppointmentResult:
-        if not command.notes or command.notes is None:
-            pass  # notes are optional; nothing to validate beyond schema length
-
         appointment_type = self._business_rules.get_active_appointment_type_by_id(command.appointment_type_id)
         start = datetime.fromisoformat(command.start_iso)
         end = start + self._business_rules.appointment_duration(appointment_type)
 
-        # Recheck immediately before write (section 2.2, section 6.6).
+        # Recheck immediately before write (section 2.2, section 6.6). A
+        # concurrent booking that wins the race between this recheck and the
+        # create_event call below still surfaces as SlotConflictError,
+        # propagated unchanged from the gateway.
         busy = self._outlook_gateway.get_schedule(start, end)
         if any(b.start < end and b.end > start for b in busy):
             raise SlotConflictError()
 
-        try:
-            event: OutlookEvent = self._outlook_gateway.create_event(
-                subject=f"{appointment_type.display_name} - {command.customer_name}",
-                start=start,
-                end=end,
-                body=self._build_event_body(command),
-                categories=["tuxedo_appointment", appointment_type.code],
-            )
-        except SlotConflictError:
-            # A concurrent booking won the race between our recheck and the write.
-            raise
+        event: OutlookEvent = self._outlook_gateway.create_event(
+            subject=f"{appointment_type.display_name} - {command.customer_name}",
+            start=start,
+            end=end,
+            body=self._build_event_body(command),
+            categories=["tuxedo_appointment", appointment_type.code],
+        )
 
         logger.info(
             "Appointment created",
@@ -94,7 +96,7 @@ class SchedulingOrchestrator:
         )
 
         return AppointmentResult(
-            id=next(_local_id_counter),
+            id=_derive_local_id(event.event_id),
             status="confirmed",
             start=event.start.isoformat(),
             end=event.end.isoformat(),
@@ -106,7 +108,7 @@ class SchedulingOrchestrator:
         if event is None:
             return None
         return AppointmentResult(
-            id=0,
+            id=_derive_local_id(event.event_id),
             status="confirmed",
             start=event.start.isoformat(),
             end=event.end.isoformat(),

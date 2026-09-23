@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import datetime
 
 import pytest
 
@@ -58,6 +58,20 @@ def test_confirm_booking_unknown_appointment_type_raises_validation_error(orches
 
     with pytest.raises(ValidationError):
         scheduler.confirm_booking(command)
+
+
+def test_get_appointment_id_matches_confirm_booking_id(orchestrator):
+    """Regression test: the display-only local id must be stable across
+    confirm_booking and a later get_appointment lookup for the same Outlook
+    event, since there is no local database to persist an auto-incrementing
+    id against (ADR-006)."""
+    scheduler, _gateway = orchestrator
+    created = scheduler.confirm_booking(_command("2026-09-21T09:00:00"))
+
+    fetched = scheduler.get_appointment(created.outlook_event_id)
+
+    assert fetched is not None
+    assert fetched.id == created.id
 
 
 def test_get_appointment_returns_none_when_missing(orchestrator):

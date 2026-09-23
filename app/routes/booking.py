@@ -13,6 +13,7 @@ from marshmallow import ValidationError as MarshmallowValidationError
 from app.errors.handlers import NotFoundError, ValidationError
 from app.models.schemas import (
     AppointmentCreateSchema,
+    AppointmentResult,
     AvailabilityRequestSchema,
     BookingCommand,
     IntentRequestSchema,
@@ -27,6 +28,16 @@ def _orchestrator():
 
 def _appointment_type_store():
     return current_app.extensions["appointment_type_store"]
+
+
+def _serialize_appointment(result: AppointmentResult) -> dict:
+    return {
+        "id": result.id,
+        "status": result.status,
+        "start": result.start,
+        "end": result.end,
+        "outlook_event_id": result.outlook_event_id,
+    }
 
 
 @booking_bp.post("/intent")
@@ -115,18 +126,7 @@ def post_appointments():
     result = _orchestrator().confirm_booking(command)
 
     return (
-        jsonify(
-            {
-                "appointment": {
-                    "id": result.id,
-                    "status": result.status,
-                    "start": result.start,
-                    "end": result.end,
-                    "outlook_event_id": result.outlook_event_id,
-                },
-                "message": "Your appointment is confirmed.",
-            }
-        ),
+        jsonify({"appointment": _serialize_appointment(result), "message": "Your appointment is confirmed."}),
         201,
     )
 
@@ -136,20 +136,7 @@ def get_appointment(event_id: str):
     result = _orchestrator().get_appointment(event_id)
     if result is None:
         raise NotFoundError("No appointment was found with that id.")
-    return (
-        jsonify(
-            {
-                "appointment": {
-                    "id": result.id,
-                    "status": result.status,
-                    "start": result.start,
-                    "end": result.end,
-                    "outlook_event_id": result.outlook_event_id,
-                }
-            }
-        ),
-        200,
-    )
+    return jsonify({"appointment": _serialize_appointment(result)}), 200
 
 
 @booking_bp.get("/appointment-types")
