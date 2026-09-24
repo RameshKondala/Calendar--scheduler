@@ -1,0 +1,27 @@
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/errors/handlers.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/gateways/outlook.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/models/schemas.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/routes/auth.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/routes/booking.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/routes/owner.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/services/availability.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/services/business_rules.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/services/scheduling.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'requirements.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/test_scheduling_orchestrator.py', LF will be replaced by CRLF the next time Git touches it
+ .gitignore                                 |   8 [32m+[m
+ README.md                                  | 265 [32m+++++++++++++++++++++++++++[m[31m--[m
+ app/errors/handlers.py                     |   6 [32m+[m[31m-[m
+ app/gateways/outlook.py                    |   2 [32m+[m[31m-[m
+ app/models/schemas.py                      |   3 [32m+[m[31m-[m
+ app/routes/auth.py                         |   5 [32m+[m[31m-[m
+ app/routes/booking.py                      |  39 [32m++[m[31m---[m
+ app/routes/owner.py                        |   2 [32m+[m[31m-[m
+ app/services/availability.py               |   2 [32m+[m[31m-[m
+ app/services/business_rules.py             |   2 [32m+[m[31m-[m
+ app/services/scheduling.py                 |  50 [32m+++[m[31m---[m
+ requirements.txt                           |   2 [32m+[m
+ tests/unit/test_scheduling_orchestrator.py |  16 [32m+[m[31m-[m
+ 13 files changed, 325 insertions(+), 77 deletions(-)
