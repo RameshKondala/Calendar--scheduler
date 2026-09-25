@@ -2,7 +2,6 @@
 """Unit tests for the Microsoft Graph Outlook gateway."""
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 import pytest
 import requests
