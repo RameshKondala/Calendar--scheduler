@@ -7,8 +7,11 @@ in the Week 3 architecture and Week 4 detailed design documents. Microsoft
 Outlook Calendar (via Microsoft Graph) is the authoritative scheduling data
 store; this app never maintains a second appointment database (ADR-006).
 Outlook integration lives entirely behind the `OutlookGateway` interface in
-`app/gateways/outlook.py` so it can be swapped for a real Microsoft Graph
-implementation without touching routes or services.
+`app/gateways/outlook.py`. Two implementations exist: `FakeOutlookGateway`
+(in-memory, the default) and `GraphOutlookGateway`
+(`app/gateways/graph_outlook.py`, Microsoft Graph, added by Jose). The Graph
+gateway is implemented and tested but **not yet wired into the running app**
+(see "Known gaps").
 
 ## Prerequisites
 
@@ -40,11 +43,11 @@ cp .env.example .env
 | Variable | Purpose | Notes |
 |---|---|---|
 | `FLASK_ENV` | `development` / `testing` / `production` | selects the config class in `config.py` |
-| `BUSINESS_TIMEZONE` | default timezone for scheduling | e.g. `America/Chicago` |
+| `BUSINESS_TIMEZONE` | the shop's timezone; all scheduling and displayed times use it | IANA name, e.g. `America/Chicago`. Validated at startup. Needs the `tzdata` package on Windows (already in `requirements.txt`) |
 | `OWNER_ACCESS_TOKEN` | bearer token owner endpoints check for | placeholder until real Microsoft identity/role auth is wired in |
 | `OPENAI_API_KEY` | enables the real OpenAI intent interpreter | leave blank to use `FakeIntentInterpreter` locally, no key required |
 | `OPENAI_MODEL`, `AI_TIMEOUT_SECONDS` | OpenAI adapter tuning | |
-| `OUTLOOK_GATEWAY` | `fake` (default) or `graph` | `graph` is the integration point for Jose's real Microsoft Graph gateway; not yet implemented |
+| `OUTLOOK_GATEWAY` | `fake` (default) or `graph` | `graph` is reserved for `GraphOutlookGateway`, but selecting it currently fails at startup: it still needs an access-token provider and wiring (see "Known gaps") |
 | `MS_GRAPH_CLIENT_ID`, `MS_GRAPH_CLIENT_SECRET`, `MS_GRAPH_TENANT_ID`, `MS_GRAPH_CALENDAR_ID` | Microsoft Graph credentials | used only once a real gateway is registered |
 | `RATE_LIMIT_AI_PER_MINUTE`, `RATE_LIMIT_BOOKING_PER_MINUTE` | rate-limit config | present but **not yet enforced** in code (see "Known gaps") |
 
@@ -64,7 +67,9 @@ database tables — there is no migration or seed step to run.
 python run.py
 ```
 
-Then, in another terminal:
+Then open **http://127.0.0.1:5000/** in a browser for the customer booking
+page (or **http://127.0.0.1:5000/owner** for the staff portal) — see
+"Using the app" below. The API is still reachable directly if you prefer:
 
 ```bash
 curl http://127.0.0.1:5000/api/v1/health
@@ -74,6 +79,29 @@ curl http://127.0.0.1:5000/api/v1/appointment-types
 With no `OPENAI_API_KEY` and `OUTLOOK_GATEWAY=fake` (the defaults), the app
 runs fully locally: intent parsing uses a simple keyword-based fake
 interpreter, and calendar operations use an in-memory fake Outlook gateway.
+
+## Using the app (Week 6 frontend)
+
+No `curl`, PowerShell, or Postman is needed for normal use — the pages
+below are the primary interface.
+
+- **Customer page (`/`)** — describe the appointment in plain language
+  (calls the same `/api/v1/intent` endpoint) or fill in the type/date/time
+  fields directly, search availability, pick a proposed slot, enter
+  contact details, and confirm. Shows the same 409 conflict / validation
+  errors the API returns if a slot is taken or a field is invalid.
+- **Staff portal (`/owner`)** — enter the `OWNER_ACCESS_TOKEN` value once
+  (stored only in that browser tab's `sessionStorage`, sent as the
+  `Authorization` header on owner requests), then view the schedule for a
+  date range, create a busy block, and edit appointment-type
+  duration/buffer/active status.
+
+The frontend is plain HTML/CSS/vanilla JavaScript (`app/templates/`,
+`app/static/`) with no build step and no framework, per Week 4's
+technology stack. It contains no scheduling logic of its own — every page
+action calls the existing `/api/v1/...` endpoints, so
+`SchedulingOrchestrator`, `BusinessRulesService`, `AvailabilityService`,
+and `OutlookGateway` remain the only place booking decisions are made.
 
 ## Running tests
 
@@ -91,15 +119,20 @@ flake8 app config.py run.py tests
 - `tests/unit/` — business rules, availability slot generation, intent
   validation/interpretation (including the OpenAI adapter's error mapping,
   mocked — no API key needed), the scheduling orchestrator, and the fake
-  Outlook gateway's behavior.
+  Outlook gateway's behavior, plus `test_graph_outlook.py` — Jose's unit
+  tests for `GraphOutlookGateway` (HTTP mocked).
 - `tests/integration/` — Flask test-client coverage of the customer and
   owner API endpoints: happy paths, validation failures, 404s, 405s, 409
   slot conflicts, a forced 503 `OUTLOOK_UNAVAILABLE`, owner authorization,
-  and the generic catch-all 500 handler.
+  the generic catch-all 500 handler, and the frontend page/static-asset
+  routes (`test_frontend_routes.py`). `test_graph_gateway_integration.py`
+  drives the real API through the real `GraphOutlookGateway` (only the HTTP
+  call is mocked) to verify the two fit together: timezone handling,
+  conflict detection, outage mapping, and Graph's UTC responses coming back
+  as shop time.
 
-As of this pass: **51 tests, 51 passed, 0 failed, 0 skipped, 95% line
-coverage** on `app/` (verified locally in a clean virtual environment; see
-the PR summary at the bottom of this document for the exact run).
+As of this pass: **104 tests, 104 passed, 0 failed, 0 skipped, 95% line
+coverage** on `app/` (verified locally in a clean virtual environment).
 
 ## Continuous Integration
 
@@ -111,7 +144,11 @@ fails.
 ## API Reference
 
 Base path: `/api/v1`. Content type: `application/json` for all request and
-response bodies. Timestamps are ISO 8601.
+response bodies. Timestamps are ISO 8601. Datetimes you send **without** a UTC
+offset (for example `2026-09-29T09:00:00`, or the value of an HTML
+`datetime-local` input) are read as shop time (`BUSINESS_TIMEZONE`); datetimes
+with an offset are honored as the same instant. Datetimes in responses always
+carry the shop's offset (for example `2026-09-29T09:00:00-05:00`).
 
 ### Authentication
 
@@ -340,17 +377,93 @@ supplied value is out of range.
 - Owner-route authorization via a constant-time bearer-token check
   (`app/routes/auth.py`), stubbed pending real Microsoft identity/role auth.
 - CI pipeline (`.github/workflows/ci.yml`): lint + test on every push/PR.
-- 51 unit + integration tests, all passing, 95% line coverage on `app/`.
+- 51 unit + integration tests, all passing, 95% line coverage on `app/`
+  (before the Week 6 frontend additions below).
+
+## What's implemented (Week 6, frontend)
+
+- Customer booking page (`GET /`) and staff portal (`GET /owner`), served
+  by a new `frontend_bp` blueprint (`app/routes/frontend.py`) that only
+  calls `render_template` — no validation, service, or gateway calls live
+  in it.
+- Plain HTML/CSS/vanilla JavaScript in `app/templates/` and
+  `app/static/`, no build step, no frontend framework, per Week 4's
+  technology stack. Every user action calls the existing
+  `/api/v1/...` endpoints; no scheduling/business logic was duplicated
+  into JavaScript.
+- Customer flow: optional natural-language intent box
+  (`POST /intent`) → appointment-type/date/time search
+  (`POST /availability`) → slot picker → contact form → confirm
+  (`POST /appointments`) → confirmation screen, with a 409 conflict
+  routing the user back to re-pick a slot rather than just showing an
+  error.
+- Staff portal: session-scoped access-token entry (stored in that
+  browser tab's `sessionStorage` only, never persisted server-side or
+  committed) → schedule view (`GET /owner/appointments`) → block-time
+  form (`POST /owner/blocks`) → inline appointment-type editing
+  (`PUT /owner/appointment-types/{id}`).
+- One shared JS helper (`app/static/js/api.js`) renders the existing
+  `{"error": {code, message, retryable, request_id}}` contract into an
+  error banner on both pages — no new error format was introduced.
+- 7 new integration tests confirming both pages and all static assets
+  render/serve correctly, and that adding page routes didn't change the
+  API's error contract or routing.
+- End-to-end verified against the real running server (not just tests):
+  searched availability, booked a slot, confirmed the booked slot
+  disappeared from a re-search, created an owner block, and updated an
+  appointment type — all via the exact JSON payload shapes the frontend
+  JS sends.
+
+## What's implemented (Outlook integration, Jose)
+
+- `GraphOutlookGateway` (`app/gateways/graph_outlook.py`) implements every
+  `OutlookGateway` method against Microsoft Graph: free/busy via
+  `calendarView`, event create/read/list, and owner blocks. All `requests`
+  and parsing failures are mapped to `OutlookUnavailableError`, a slot that
+  became busy raises `SlotConflictError`, event and calendar ids are
+  URL-quoted, and a response it cannot read completely fails safe instead
+  of being treated as an empty calendar.
+- 25 unit tests with the HTTP layer mocked.
+- **Not wired in yet.** Nothing constructs it: `OUTLOOK_GATEWAY=graph` still
+  fails at startup (see "Known gaps").
+
+## Time handling
+
+The Graph gateway (like any `OutlookGateway`) requires timezone-aware
+datetimes. `BusinessRulesService.to_business_time` is the single place that
+converts input to shop time, and `SchedulingOrchestrator` applies it to
+everything it sends to the gateway and to every event it reads back (Graph
+returns UTC). `FakeOutlookGateway` enforces the same rule, so a service that
+forgets fails in tests instead of only against the real calendar. The pages
+display times exactly as the API returns them (shop time), regardless of the
+viewer's own timezone.
+
+- Total after this pass: **104 tests, 104 passed, 0 failed, 0 skipped, 95%
+  line coverage** on `app/`.
 
 ## Known gaps / remaining integration work
 
 These are explicitly **not** complete — do not treat them as done:
 
-- **Real Microsoft Graph gateway.** `OutlookGateway` is only implemented by
-  `FakeOutlookGateway`. Jose's real implementation should be added as
-  (e.g.) `app/gateways/graph_outlook.py`, implementing the same interface,
-  and registered in `app/__init__.py::_build_outlook_gateway` under
-  `OUTLOOK_GATEWAY=graph`. No route or service code should need to change.
+- **Wiring `GraphOutlookGateway` into the app.** The gateway exists but
+  `_build_outlook_gateway` still raises for `OUTLOOK_GATEWAY=graph`.
+  Blocked on a decision: the gateway takes an `access_token_provider`
+  callable and calls `/me/calendars/...`, which requires a *delegated*
+  (signed-in user) token, while the config carries a client secret and
+  tenant id, which is the *app-only* flow — and `/me` is not valid with an
+  app-only token. Someone has to choose the flow and write the provider
+  (MSAL). Nothing in this repo invents one.
+- **Graph pagination.** Graph returns 10 `calendarView` events per page by
+  default. The gateway sets no `$top` and rejects any response that has a
+  `nextLink`, so a window with more than 10 events (a busy shop day, or a
+  week in the owner view) fails with `503 OUTLOOK_UNAVAILABLE` every time.
+  It fails closed rather than truncating, which is the safe choice, but it
+  needs to follow `nextLink` (bounded) before real use.
+- **Bookings are not checked against business hours.** `POST /appointments`
+  accepts any `start` for an active appointment type; only `/availability`
+  applies business hours. Week 4 §3.6 says `start` must match a valid
+  candidate. The pages only offer valid slots, but a direct API call is not
+  stopped.
 - **Real Microsoft identity/role-based owner auth.** The current
   `require_owner` check is a bearer-token placeholder, not MSAL/Entra.
 - **Guest-scoped `GET /appointments/{id}`.** Currently open to anyone who
@@ -367,3 +480,15 @@ These are explicitly **not** complete — do not treat them as done:
 - **Contract/E2E test tiers.** Only unit and integration tests exist so far;
   the `contract/` and `e2e/` tiers from Week 4 §8.4 are not yet built out
   (they depend on the real Graph/OpenAI integrations to be meaningful).
+- **Frontend has no automated JS tests.** Deliberate, not an oversight —
+  adding a JS test runner would introduce tooling the project doesn't
+  otherwise need. Coverage instead comes from the Flask integration tests
+  (pages/assets serve correctly) plus manual end-to-end verification
+  against the running server (see above).
+- **Frontend has not had a visual/manual browser review.** Contrast was
+  checked numerically (WCAG ratios on every color pairing actually used in
+  the CSS) and behavior was checked via HTTP, but nobody has opened the
+  pages in an actual browser yet — worth doing before calling this done.
+- **Owner "login" is a token paste box, not sign-in.** It's wired to the
+  same placeholder bearer-token check as the API; it will need to change
+  together with the real Microsoft identity/role auth item above.
