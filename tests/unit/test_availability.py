@@ -1,3 +1,4 @@
+from zoneinfo import ZoneInfo
 from datetime import date, datetime, time
 
 import pytest
@@ -7,6 +8,8 @@ from app.config_store.business_hours import BusinessHours
 from app.gateways.outlook import FakeOutlookGateway
 from app.services.availability import AvailabilityService
 from app.services.business_rules import BusinessRulesService
+
+CHICAGO = ZoneInfo("America/Chicago")
 
 
 @pytest.fixture
@@ -33,7 +36,7 @@ def test_find_options_returns_free_slots(setup):
 def test_find_options_skips_busy_slots(setup):
     availability, business_rules, gateway, appointment_type = setup
     monday = date(2026, 9, 21)
-    gateway.seed_busy(datetime(2026, 9, 21, 9, 0), datetime(2026, 9, 21, 9, 45))
+    gateway.seed_busy(datetime(2026, 9, 21, 9, 0, tzinfo=CHICAGO), datetime(2026, 9, 21, 9, 45, tzinfo=CHICAGO))
 
     windows = business_rules.build_candidate_windows(monday, monday, time(9, 0), time(11, 0))
     options = availability.find_options(appointment_type, windows, max_options=3)
@@ -54,3 +57,14 @@ def test_find_options_respects_max_options(setup):
 def test_find_options_empty_windows_returns_empty(setup):
     availability, _business_rules, _gateway, appointment_type = setup
     assert availability.find_options(appointment_type, [], max_options=3) == []
+
+
+def test_find_options_returns_slots_in_the_business_timezone(setup):
+    availability, business_rules, _gateway, appointment_type = setup
+    monday = date(2026, 9, 21)
+    windows = business_rules.build_candidate_windows(monday, monday, time(9, 0), time(11, 0))
+
+    options = availability.find_options(appointment_type, windows, max_options=1)
+
+    assert options[0].start == "2026-09-21T09:00:00-05:00"
+    assert options[0].end == "2026-09-21T09:45:00-05:00"

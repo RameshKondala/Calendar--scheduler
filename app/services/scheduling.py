@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import zlib
+from dataclasses import replace
 from datetime import datetime
 
 from app.errors.handlers import SlotConflictError, ValidationError
@@ -71,7 +72,7 @@ class SchedulingOrchestrator:
 
     def confirm_booking(self, command: BookingCommand) -> AppointmentResult:
         appointment_type = self._business_rules.get_active_appointment_type_by_id(command.appointment_type_id)
-        start = datetime.fromisoformat(command.start_iso)
+        start = self._business_rules.to_business_time(datetime.fromisoformat(command.start_iso))
         end = start + self._business_rules.appointment_duration(appointment_type)
 
         # Recheck immediately before write (section 2.2, section 6.6). A
@@ -95,33 +96,53 @@ class SchedulingOrchestrator:
             extra={"outlook_event_id": event.event_id, "appointment_type": appointment_type.code},
         )
 
-        return AppointmentResult(
-            id=_derive_local_id(event.event_id),
-            status="confirmed",
-            start=event.start.isoformat(),
-            end=event.end.isoformat(),
-            outlook_event_id=event.event_id,
-        )
+        return self._to_result(event)
 
     def get_appointment(self, event_id: str) -> AppointmentResult | None:
         event = self._outlook_gateway.get_event(event_id)
         if event is None:
             return None
-        return AppointmentResult(
-            id=_derive_local_id(event.event_id),
-            status="confirmed",
-            start=event.start.isoformat(),
-            end=event.end.isoformat(),
-            outlook_event_id=event.event_id,
-        )
+        return self._to_result(event)
 
     def list_owner_schedule(self, date_from: datetime, date_to: datetime) -> list[OutlookEvent]:
-        return self._outlook_gateway.list_events(date_from, date_to, categories=["tuxedo_appointment"])
+        events = self._outlook_gateway.list_events(
+            self._business_rules.to_business_time(date_from),
+            self._business_rules.to_business_time(date_to),
+            categories=["tuxedo_appointment"],
+        )
+        return [self._in_business_time(event) for event in events]
 
     def create_owner_block(self, start: datetime, end: datetime, reason: str | None) -> OutlookEvent:
+        start = self._business_rules.to_business_time(start)
+        end = self._business_rules.to_business_time(end)
         if end <= start:
             raise ValidationError("Block end time must be after start time.")
-        return self._outlook_gateway.create_block(start=start, end=end, reason=reason)
+        block = self._outlook_gateway.create_block(start=start, end=end, reason=reason)
+        return self._in_business_time(block)
+
+    def _in_business_time(self, event: OutlookEvent) -> OutlookEvent:
+        """Re-express an event's times in the business timezone.
+
+        Gateways may return instants in any timezone (the Graph gateway
+        normalizes to UTC); API responses always carry business-local
+        times, per the "local time plus configured business time zone"
+        convention in Week 4 section 3.1.
+        """
+        return replace(
+            event,
+            start=self._business_rules.to_business_time(event.start),
+            end=self._business_rules.to_business_time(event.end),
+        )
+
+    def _to_result(self, event: OutlookEvent) -> AppointmentResult:
+        local_event = self._in_business_time(event)
+        return AppointmentResult(
+            id=_derive_local_id(local_event.event_id),
+            status="confirmed",
+            start=local_event.start.isoformat(),
+            end=local_event.end.isoformat(),
+            outlook_event_id=local_event.event_id,
+        )
 
     @staticmethod
     def _build_event_body(command: BookingCommand) -> str:

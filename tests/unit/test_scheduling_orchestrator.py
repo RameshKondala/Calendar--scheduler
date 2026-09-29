@@ -1,3 +1,4 @@
+from zoneinfo import ZoneInfo
 from datetime import datetime
 
 import pytest
@@ -11,6 +12,8 @@ from app.services.availability import AvailabilityService
 from app.services.business_rules import BusinessRulesService
 from app.services.intent import FakeIntentInterpreter, IntentService
 from app.services.scheduling import SchedulingOrchestrator
+
+CHICAGO = ZoneInfo("America/Chicago")
 
 
 @pytest.fixture
@@ -45,7 +48,7 @@ def test_confirm_booking_creates_outlook_event(orchestrator):
 
 def test_confirm_booking_conflict_raises_slot_conflict(orchestrator):
     scheduler, gateway = orchestrator
-    gateway.seed_busy(datetime(2026, 9, 21, 9, 0), datetime(2026, 9, 21, 9, 45))
+    gateway.seed_busy(datetime(2026, 9, 21, 9, 0, tzinfo=CHICAGO), datetime(2026, 9, 21, 9, 45, tzinfo=CHICAGO))
 
     with pytest.raises(SlotConflictError):
         scheduler.confirm_booking(_command("2026-09-21T09:00:00"))
@@ -81,7 +84,7 @@ def test_get_appointment_returns_none_when_missing(orchestrator):
 
 def test_create_owner_block_rejects_invalid_range(orchestrator):
     scheduler, _gateway = orchestrator
-    start = datetime(2026, 9, 21, 10, 0)
-    end = datetime(2026, 9, 21, 9, 0)
+    start = datetime(2026, 9, 21, 10, 0, tzinfo=CHICAGO)
+    end = datetime(2026, 9, 21, 9, 0, tzinfo=CHICAGO)
     with pytest.raises(ValidationError):
         scheduler.create_owner_block(start, end, "test block")

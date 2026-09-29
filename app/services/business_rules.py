@@ -8,7 +8,7 @@ violates business policy even if Outlook happens to be free then
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 
 from app.config_store.appointment_types import AppointmentType, AppointmentTypeStore
 from app.config_store.business_hours import BusinessHours
@@ -26,6 +26,24 @@ class BusinessRulesService:
     def __init__(self, appointment_type_store: AppointmentTypeStore, business_hours: BusinessHours) -> None:
         self._appointment_type_store = appointment_type_store
         self._business_hours = business_hours
+
+    @property
+    def zone(self) -> tzinfo:
+        """The configured business timezone."""
+        return self._business_hours.zone
+
+    def to_business_time(self, moment: datetime) -> datetime:
+        """Express ``moment`` in the business timezone.
+
+        A naive datetime is interpreted as business-local wall-clock time
+        (what a customer or owner types into the UI). An aware datetime is
+        converted to the same instant in the business timezone. Every
+        datetime handed to the Outlook gateway must go through here, since
+        gateways require timezone-aware values (see ``OutlookGateway``).
+        """
+        if moment.tzinfo is None or moment.utcoffset() is None:
+            return moment.replace(tzinfo=self.zone)
+        return moment.astimezone(self.zone)
 
     def get_active_appointment_type(self, code: str) -> AppointmentType:
         appointment_type = self._appointment_type_store.get_by_code(code)

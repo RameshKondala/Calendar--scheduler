@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time, timezone
 
 import pytest
 
@@ -55,3 +55,20 @@ def test_build_candidate_windows_rejects_end_before_start(business_rules):
 def test_build_candidate_windows_rejects_overly_wide_range(business_rules):
     with pytest.raises(ValidationError):
         business_rules.build_candidate_windows(date(2026, 1, 1), date(2026, 3, 1), None, None)
+
+
+def test_to_business_time_treats_naive_input_as_business_local(business_rules):
+    result = business_rules.to_business_time(datetime(2026, 9, 29, 9, 0))
+    assert result.isoformat() == "2026-09-29T09:00:00-05:00"
+
+
+def test_to_business_time_converts_aware_input_to_the_same_instant(business_rules):
+    utc_moment = datetime(2026, 9, 29, 14, 0, tzinfo=timezone.utc)
+    result = business_rules.to_business_time(utc_moment)
+    assert result.isoformat() == "2026-09-29T09:00:00-05:00"
+    assert result == utc_moment
+
+
+def test_to_business_time_follows_daylight_saving_offsets(business_rules):
+    winter = business_rules.to_business_time(datetime(2026, 12, 15, 9, 0))
+    assert winter.isoformat() == "2026-12-15T09:00:00-06:00"

@@ -24,10 +24,11 @@ class AvailabilityService:
         appointment_type: AppointmentType,
         windows: list[CandidateWindow],
         max_options: int = 3,
-        tz=None,
     ) -> list[SlotOption]:
         if not windows:
             return []
+
+        tz = self._business_rules.zone
 
         overall_start = datetime.combine(windows[0].date, windows[0].window_start, tzinfo=tz)
         overall_end = datetime.combine(windows[-1].date, windows[-1].window_end, tzinfo=tz)

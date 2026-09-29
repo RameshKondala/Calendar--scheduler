@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,20 @@ class BusinessHours:
     closing_time: time = time(18, 0)
     timezone: str = "America/Chicago"
     blackout_dates: frozenset[date] = field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        try:
+            ZoneInfo(self.timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(
+                f"'{self.timezone}' is not a valid IANA timezone name "
+                "(on Windows, also make sure the 'tzdata' package is installed)."
+            ) from exc
+
+    @property
+    def zone(self) -> ZoneInfo:
+        """The business timezone as a tzinfo (raises if the name is unknown)."""
+        return ZoneInfo(self.timezone)
 
     def is_open_on(self, day: date) -> bool:
         if day in self.blackout_dates:

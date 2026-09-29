@@ -46,6 +46,11 @@ class OutlookGateway(ABC):
     and ``SlotConflictError`` when a create_event call loses a race against
     a slot that just became busy. No other exception types should escape
     this boundary.
+
+    All ``datetime`` arguments must be timezone-aware. Callers convert
+    business-local input to aware values first (see
+    ``BusinessRulesService.to_business_time``); implementations may return
+    aware datetimes in any timezone.
     """
 
     @abstractmethod
@@ -98,8 +103,17 @@ class FakeOutlookGateway(OutlookGateway):
         if self.force_unavailable:
             raise OutlookUnavailableError()
 
+    @staticmethod
+    def _require_aware(*moments: datetime) -> None:
+        """Enforce the same timezone-aware contract the real gateway does, so
+        tests fail loudly if a service ever hands over a naive datetime."""
+        for moment in moments:
+            if moment.tzinfo is None or moment.utcoffset() is None:
+                raise ValueError("OutlookGateway datetimes must be timezone-aware.")
+
     def get_schedule(self, window_start: datetime, window_end: datetime) -> list[FreeBusyWindow]:
         self._check_available()
+        self._require_aware(window_start, window_end)
         busy_windows = [
             FreeBusyWindow(e.start, e.end, is_free=False)
             for e in self._events.values()
@@ -123,6 +137,7 @@ class FakeOutlookGateway(OutlookGateway):
         categories: list[str] | None = None,
     ) -> OutlookEvent:
         self._check_available()
+        self._require_aware(start, end)
         if not self._is_slot_free(start, end):
             raise SlotConflictError()
         event_id = f"fake_{uuid.uuid4().hex[:16]}"
@@ -144,6 +159,7 @@ class FakeOutlookGateway(OutlookGateway):
         categories: list[str] | None = None,
     ) -> list[OutlookEvent]:
         self._check_available()
+        self._require_aware(window_start, window_end)
         results = [
             e
             for e in self._events.values()
@@ -168,5 +184,6 @@ class FakeOutlookGateway(OutlookGateway):
 
     # Test helper, not part of the interface.
     def seed_busy(self, start: datetime, end: datetime, subject: str = "Existing appointment") -> None:
+        self._require_aware(start, end)
         event_id = f"fake_{uuid.uuid4().hex[:16]}"
         self._events[event_id] = OutlookEvent(event_id=event_id, subject=subject, start=start, end=end)
