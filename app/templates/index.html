@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Windsor Tuxedo &mdash; Book a Fitting</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <div>
+        <h1>Windsor Tuxedo</h1>
+        <p>Book a fitting, pickup, or return online.</p>
+      </div>
+      <nav><a href="{{ url_for('frontend.owner_page') }}">Staff portal &rarr;</a></nav>
+    </div>
+  </header>
+
+  <main>
+    <ol class="steps" id="step-tracker">
+      <li id="step-1" class="is-active">1. Find a time</li>
+      <li id="step-2">2. Pick a time</li>
+      <li id="step-3">3. Your details</li>
+      <li id="step-4">4. Confirmed</li>
+    </ol>
+
+    <div class="error-banner" id="error-banner" role="alert"></div>
+
+    <!-- Step 1: describe the need, then search availability -->
+    <section class="card" id="search-section">
+      <h2>What do you need, and when?</h2>
+
+      <div class="field">
+        <label for="intent-text">Describe it in your own words (optional)</label>
+        <textarea id="intent-text" rows="2" placeholder="e.g. I need a fitting next Friday after 5pm"></textarea>
+        <p class="hint" id="intent-hint"></p>
+        <p class="hint">
+          <button type="button" class="secondary" id="interpret-button">Fill in the fields below</button>
+        </p>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="appointment-type">Appointment type</label>
+          <select id="appointment-type"></select>
+        </div>
+        <div class="field">
+          <label for="date-start">Date</label>
+          <input type="date" id="date-start">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="time-start">Earliest time (optional)</label>
+          <input type="time" id="time-start">
+        </div>
+        <div class="field">
+          <label for="time-end">Latest time (optional)</label>
+          <input type="time" id="time-end">
+        </div>
+      </div>
+
+      <button type="button" id="search-button">Find available times</button>
+    </section>
+
+    <!-- Step 2: choose a proposed slot (not yet reserved) -->
+    <section class="card" id="slots-section" hidden>
+      <h2>Available times</h2>
+      <p class="hint">These are proposals, not reservations &mdash; the time you pick is rechecked when you confirm.</p>
+      <div class="slot-grid" id="slot-grid"></div>
+      <p class="empty-state" id="slots-empty" hidden>No open times in that window. Try a different date or time range.</p>
+    </section>
+
+    <!-- Step 3: customer details + confirm -->
+    <section class="card" id="details-section" hidden>
+      <h2>Your details</h2>
+      <p class="hint">Booking: <strong id="selected-slot-label"></strong></p>
+
+      <div class="field">
+        <label for="customer-name">Full name</label>
+        <input type="text" id="customer-name" maxlength="100" required>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="customer-email">Email</label>
+          <input type="email" id="customer-email" required>
+        </div>
+        <div class="field">
+          <label for="customer-phone">Phone (optional)</label>
+          <input type="tel" id="customer-phone" maxlength="30">
+        </div>
+      </div>
+      <div class="field">
+        <label for="customer-notes">Notes (optional)</label>
+        <textarea id="customer-notes" rows="2" maxlength="500"></textarea>
+      </div>
+
+      <button type="button" id="confirm-button">Confirm booking</button>
+      <button type="button" class="secondary" id="back-to-slots-button">&larr; Choose a different time</button>
+    </section>
+
+    <!-- Step 4: confirmation -->
+    <section class="card" id="confirmation-section" hidden>
+      <h2>You're booked</h2>
+      <div class="confirmation">
+        <span class="badge" id="confirmation-status">confirmed</span>
+        <dl>
+          <dt>When</dt>
+          <dd id="confirmation-when"></dd>
+          <dt>Calendar reference</dt>
+          <dd id="confirmation-event-id"></dd>
+        </dl>
+      </div>
+      <p class="hint">Keep the calendar reference above if you need to look up this appointment later.</p>
+      <button type="button" class="secondary" id="book-another-button">Book another appointment</button>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/customer.js') }}"></script>
+</body>
+</html>
