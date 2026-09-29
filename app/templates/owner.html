@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Windsor Tuxedo &mdash; Staff Portal</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <div>
+        <h1>Staff Portal</h1>
+        <p>View the schedule, block time, and manage appointment types.</p>
+      </div>
+      <nav><a href="{{ url_for('frontend.customer_page') }}">&larr; Customer booking</a></nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="error-banner" id="error-banner" role="alert"></div>
+
+    <section class="card" id="auth-section">
+      <h2>Staff access <span class="badge accent">Placeholder auth</span></h2>
+      <p class="hint">
+        Enter your access token to use the sections below. This is a placeholder for
+        real Microsoft-identity sign-in, which will replace it later.
+      </p>
+      <div class="field-row">
+        <div class="field">
+          <label for="owner-token">Access token</label>
+          <input type="password" id="owner-token" autocomplete="off">
+        </div>
+      </div>
+      <button type="button" class="secondary" id="save-token-button">Save token</button>
+      <button type="button" class="secondary" id="clear-token-button">Clear</button>
+      <p class="hint" id="token-status">No token saved for this browser session.</p>
+    </section>
+
+    <section class="card">
+      <h2>Schedule</h2>
+      <div class="field-row">
+        <div class="field">
+          <label for="schedule-from">From</label>
+          <input type="datetime-local" id="schedule-from">
+        </div>
+        <div class="field">
+          <label for="schedule-to">To</label>
+          <input type="datetime-local" id="schedule-to">
+        </div>
+      </div>
+      <button type="button" id="load-schedule-button">Load appointments</button>
+
+      <table class="data-table" id="schedule-table" hidden>
+        <thead>
+          <tr><th>Start</th><th>End</th><th>Subject</th><th>Reference</th></tr>
+        </thead>
+        <tbody id="schedule-body"></tbody>
+      </table>
+      <p class="empty-state" id="schedule-empty" hidden>No appointments in that range.</p>
+    </section>
+
+    <section class="card">
+      <h2>Block time</h2>
+      <p class="hint">Creates a busy block on the calendar so it can't be booked over.</p>
+      <div class="field-row">
+        <div class="field">
+          <label for="block-start">Start</label>
+          <input type="datetime-local" id="block-start">
+        </div>
+        <div class="field">
+          <label for="block-end">End</label>
+          <input type="datetime-local" id="block-end">
+        </div>
+      </div>
+      <div class="field">
+        <label for="block-reason">Reason (optional)</label>
+        <input type="text" id="block-reason" maxlength="200" placeholder="e.g. Staff lunch">
+      </div>
+      <button type="button" id="create-block-button">Create block</button>
+      <p class="hint" id="block-status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Appointment types</h2>
+      <p class="hint">Update duration, buffer, and whether a type is currently bookable.</p>
+      <div id="types-list"></div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/owner.js') }}"></script>
+</body>
+</html>

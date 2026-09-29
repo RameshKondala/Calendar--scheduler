@@ -17,6 +17,7 @@ from app.errors.handlers import register_error_handlers
 from app.gateways.openai_intent import OpenAIIntentAdapter
 from app.gateways.outlook import FakeOutlookGateway, OutlookGateway
 from app.routes.booking import booking_bp
+from app.routes.frontend import frontend_bp
 from app.routes.health import health_bp
 from app.routes.owner import owner_bp
 from app.services.availability import AvailabilityService
@@ -93,6 +94,7 @@ def create_app(config_object=None, outlook_gateway: OutlookGateway | None = None
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(booking_bp, url_prefix="/api/v1")
     app.register_blueprint(owner_bp, url_prefix="/api/v1")
+    app.register_blueprint(frontend_bp)
 
     register_error_handlers(app)
 
