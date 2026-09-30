@@ -1,4 +1,3 @@
-
 """Unit tests for the Microsoft Graph Outlook gateway."""
 
 from datetime import datetime, timezone
@@ -337,22 +336,53 @@ def test_list_events_rejects_malformed_response(monkeypatch):
         gateway.list_events(start, end)
 
 
-def test_list_events_rejects_incomplete_pages(monkeypatch):
+def test_list_events_follows_pagination(monkeypatch):
     gateway = _gateway()
+    calls = []
 
-    monkeypatch.setattr(
-        gateway,
-        "_request",
-        lambda *args, **kwargs: FakeResponse({
-            "value": [_graph_event()],
-            "@odata.nextLink": "https://graph.microsoft.com/next-page",
-        }),
-    )
+    first_page = FakeResponse({
+        "value": [
+            _graph_event(
+                event_id="event-page-1",
+                subject="First appointment",
+            )
+        ],
+        "@odata.nextLink": (
+            "https://graph.microsoft.com/v1.0/"
+            "me/calendars/test-calendar/calendarView?$skiptoken=page2"
+        ),
+    })
+    second_page = FakeResponse({
+        "value": [
+            _graph_event(
+                event_id="event-page-2",
+                subject="Second appointment",
+            )
+        ]
+    })
+
+    def fake_request(method, path, *, params=None, json=None):
+        calls.append((method, path, params))
+        if len(calls) == 1:
+            return first_page
+        return second_page
+
+    monkeypatch.setattr(gateway, "_request", fake_request)
 
     start, end = _window()
+    events = gateway.list_events(start, end)
 
-    with pytest.raises(OutlookUnavailableError):
-        gateway.list_events(start, end)
+    assert [event.event_id for event in events] == [
+        "event-page-1",
+        "event-page-2",
+    ]
+    assert len(calls) == 2
+    assert calls[1][0] == "GET"
+    assert calls[1][1] == (
+        "/me/calendars/test-calendar/"
+        "calendarView?$skiptoken=page2"
+    )
+    assert calls[1][2] is None
 
 
 def test_get_event_returns_appointment(monkeypatch):
@@ -477,22 +507,48 @@ def test_create_block_rejects_occupied_slot(monkeypatch):
         )
 
 
-def test_schedule_rejects_incomplete_pages(monkeypatch):
+def test_schedule_follows_pagination(monkeypatch):
     gateway = _gateway()
+    calls = []
 
-    monkeypatch.setattr(
-        gateway,
-        "_request",
-        lambda *args, **kwargs: FakeResponse({
-            "value": [],
-            "@odata.nextLink": "https://graph.microsoft.com/next-page",
-        }),
-    )
+    first_page = FakeResponse({
+        "value": [{
+            "showAs": "busy",
+            "start": {"dateTime": "2026-09-25T10:00:00+00:00"},
+            "end": {"dateTime": "2026-09-25T11:00:00+00:00"},
+        }],
+        "@odata.nextLink": (
+            "https://graph.microsoft.com/v1.0/"
+            "me/calendars/test-calendar/calendarView?$skiptoken=page2"
+        ),
+    })
+    second_page = FakeResponse({
+        "value": [{
+            "showAs": "busy",
+            "start": {"dateTime": "2026-09-25T13:00:00+00:00"},
+            "end": {"dateTime": "2026-09-25T14:00:00+00:00"},
+        }]
+    })
+
+    def fake_request(method, path, *, params=None, json=None):
+        calls.append((method, path, params))
+        if len(calls) == 1:
+            return first_page
+        return second_page
+
+    monkeypatch.setattr(gateway, "_request", fake_request)
 
     start, end = _window()
+    windows = gateway.get_schedule(start, end)
 
-    with pytest.raises(OutlookUnavailableError):
-        gateway.get_schedule(start, end)
+    assert len(windows) == 2
+    assert windows[0].start.hour == 10
+    assert windows[1].start.hour == 13
+    assert len(calls) == 2
+    assert calls[1][1] == (
+        "/me/calendars/test-calendar/"
+        "calendarView?$skiptoken=page2"
+    )
 
 
 def test_schedule_rejects_unexpected_timezone(monkeypatch):
@@ -579,3 +635,65 @@ def test_request_allows_404_only_when_requested(monkeypatch):
 
     with pytest.raises(OutlookUnavailableError):
         gateway._request("GET", "/me/events/missing")
+
+
+def test_pagination_rejects_untrusted_next_link(monkeypatch):
+    gateway = _gateway()
+
+    monkeypatch.setattr(
+        gateway,
+        "_request",
+        lambda *args, **kwargs: FakeResponse({
+            "value": [_graph_event()],
+            "@odata.nextLink": "https://example.com/steal-token",
+        }),
+    )
+
+    start, end = _window()
+
+    with pytest.raises(OutlookUnavailableError):
+        gateway.list_events(start, end)
+
+
+def test_pagination_rejects_non_string_next_link(monkeypatch):
+    gateway = _gateway()
+
+    monkeypatch.setattr(
+        gateway,
+        "_request",
+        lambda *args, **kwargs: FakeResponse({
+            "value": [_graph_event()],
+            "@odata.nextLink": 123,
+        }),
+    )
+
+    start, end = _window()
+
+    with pytest.raises(OutlookUnavailableError):
+        gateway.list_events(start, end)
+
+
+def test_pagination_enforces_page_limit(monkeypatch):
+    gateway = _gateway()
+    call_count = 0
+
+    def fake_request(method, path, *, params=None, json=None):
+        nonlocal call_count
+        call_count += 1
+        return FakeResponse({
+            "value": [],
+            "@odata.nextLink": (
+                "https://graph.microsoft.com/v1.0/"
+                "me/calendars/test-calendar/"
+                f"calendarView?$skiptoken={call_count}"
+            ),
+        })
+
+    monkeypatch.setattr(gateway, "_request", fake_request)
+
+    start, end = _window()
+
+    with pytest.raises(OutlookUnavailableError):
+        gateway.list_events(start, end)
+
+    assert call_count == gateway.MAX_PAGES + 1
