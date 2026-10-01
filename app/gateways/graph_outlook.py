@@ -20,6 +20,7 @@ class GraphOutlookGateway(OutlookGateway):
     """Microsoft Graph gateway using a delegated access token."""
 
     GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
+    MAX_PAGES = 20
 
     def __init__(
         self,
@@ -176,22 +177,59 @@ class GraphOutlookGateway(OutlookGateway):
         )
 
     @staticmethod
-    def _read_event_page(response: requests.Response) -> list[dict]:
-        """Read one complete Graph page or fail safely."""
+    def _parse_event_page(
+        response: requests.Response,
+    ) -> tuple[list[dict], str | None]:
+        """Parse one Microsoft Graph event page."""
 
         data = response.json()
 
         if not isinstance(data, dict):
             raise ValueError("Invalid Outlook response")
 
-        if not isinstance(data.get("value"), list):
+        items = data.get("value")
+
+        if not isinstance(items, list):
             raise ValueError("Missing Outlook event list")
 
-        # Never silently treat a partial calendar as complete.
-        if data.get("@odata.nextLink"):
-            raise ValueError("Additional Outlook pages require retrieval")
+        next_link = data.get("@odata.nextLink")
 
-        return data["value"]
+        if next_link is not None and not isinstance(next_link, str):
+            raise ValueError("Invalid Outlook nextLink")
+
+        return items, next_link
+
+    def _read_event_pages(
+        self,
+        response: requests.Response,
+    ) -> list[dict]:
+        """Read all Graph event pages up to a safe maximum."""
+
+        items: list[dict] = []
+        current_response = response
+
+        for _ in range(self.MAX_PAGES):
+            page_items, next_link = self._parse_event_page(
+                current_response
+            )
+            items.extend(page_items)
+
+            if not next_link:
+                return items
+
+            expected_prefix = f"{self.GRAPH_BASE_URL}/"
+
+            if not next_link.startswith(expected_prefix):
+                raise ValueError("Invalid Outlook nextLink URL")
+
+            path = next_link[len(self.GRAPH_BASE_URL):]
+
+            current_response = self._request(
+                "GET",
+                path,
+            )
+
+        raise ValueError("Outlook pagination limit exceeded")
 
     def get_schedule(
         self,
@@ -213,7 +251,7 @@ class GraphOutlookGateway(OutlookGateway):
                 },
             )
 
-            items = self._read_event_page(response)
+            items = self._read_event_pages(response)
             busy_windows = []
 
             for item in items:
@@ -353,7 +391,7 @@ class GraphOutlookGateway(OutlookGateway):
                 },
             )
 
-            items = self._read_event_page(response)
+            items = self._read_event_pages(response)
             events = []
 
             for item in items:
