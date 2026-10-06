@@ -43,7 +43,7 @@ class IdempotencyStore:
             entry = self._entries.get(key)
             if entry is None:
                 return None
-            if entry.expires_at < time.monotonic():
+            if entry.expires_at <= time.monotonic():
                 del self._entries[key]
                 return None
             return entry.result
@@ -57,6 +57,6 @@ class IdempotencyStore:
 
     def _purge_expired(self) -> None:
         now = time.monotonic()
-        expired = [key for key, entry in self._entries.items() if entry.expires_at < now]
+        expired = [key for key, entry in self._entries.items() if entry.expires_at <= now]
         for key in expired:
             del self._entries[key]

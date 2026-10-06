@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from app.models.schemas import AppointmentResult
 from app.services.idempotency import IdempotencyStore
 
@@ -32,6 +34,19 @@ def test_entry_expires_after_ttl():
     store = IdempotencyStore(ttl_seconds=0)
     store.put("key-1", _result())
     assert store.get("key-1") is None
+
+
+def test_entry_with_zero_ttl_expires_even_on_the_same_clock_tick():
+    """Regression test: time.monotonic() has coarser resolution on some
+    platforms (observed on Windows) than others, so put() and an
+    immediately-following get() can read the exact same value. A strict
+    '<' comparison treated that as "not yet expired" and returned a stale
+    entry; '<=' (the fix) correctly expires it right at the TTL boundary.
+    """
+    store = IdempotencyStore(ttl_seconds=0)
+    with patch("time.monotonic", return_value=1000.0):
+        store.put("key-1", _result())
+        assert store.get("key-1") is None
 
 
 def test_different_keys_do_not_collide():
