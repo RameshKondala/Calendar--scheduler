@@ -6,9 +6,66 @@
 (() => {
   const errorBanner = document.getElementById("error-banner");
   const TOKEN_KEY = "windsor_owner_token";
+  const SIGNED_IN_KEY = "windsor_ms_signed_in";
 
   function getToken() {
     return sessionStorage.getItem(TOKEN_KEY) || "";
+  }
+
+  /**
+   * The real sign-in state lives in an httpOnly session cookie the server
+   * sets, which JS cannot read directly. This sessionStorage flag is only
+   * a cosmetic memory of "we were told sign-in succeeded" so the button
+   * state survives a page reload; every actual request is still checked
+   * server-side regardless of what the UI shows.
+   */
+  function refreshMicrosoftSignInUi() {
+    const signedIn = sessionStorage.getItem(SIGNED_IN_KEY) === "1";
+    document.getElementById("microsoft-signin-status").textContent = signedIn
+      ? "Signed in with Microsoft."
+      : "Not signed in.";
+    document.getElementById("microsoft-signin-button").closest("a").hidden = signedIn;
+    document.getElementById("microsoft-signout-form").hidden = !signedIn;
+  }
+
+  function handleMicrosoftAuthRedirect() {
+    const params = new URLSearchParams(window.location.search);
+    const auth = params.get("auth");
+    if (!auth) return;
+
+    if (auth === "success") {
+      sessionStorage.setItem(SIGNED_IN_KEY, "1");
+    } else if (auth === "forbidden") {
+      sessionStorage.removeItem(SIGNED_IN_KEY);
+      showApiError(errorBanner, {
+        data: { error: { code: "FORBIDDEN", message: "That Microsoft account is not on the owner allow-list." } },
+      });
+    } else if (auth === "expired") {
+      sessionStorage.removeItem(SIGNED_IN_KEY);
+      showApiError(errorBanner, {
+        data: { error: { code: "SIGN_IN_EXPIRED", message: "Sign-in took too long or was restarted. Please try again." } },
+      });
+    }
+
+    params.delete("auth");
+    const query = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (query ? `?${query}` : ""));
+  }
+
+  function syncSignInUiWithResult(result) {
+    // If the server says we're no longer authorized (cookie expired, or
+    // the UPN was removed from the allow-list), stop showing a stale
+    // "signed in" state -- regardless of which auth path was actually used.
+    if (result.status === 401 || result.status === 403) {
+      sessionStorage.removeItem(SIGNED_IN_KEY);
+      refreshMicrosoftSignInUi();
+    }
+  }
+
+  function handleSignOutSubmit(event) {
+    event.preventDefault();
+    sessionStorage.removeItem(SIGNED_IN_KEY);
+    fetch("/auth/microsoft/logout", { method: "POST", credentials: "same-origin" }).finally(refreshMicrosoftSignInUi);
   }
 
   function refreshTokenStatus() {
@@ -57,6 +114,7 @@
       `/api/v1/owner/appointments?date_from=${encodeURIComponent(from)}&date_to=${encodeURIComponent(to)}`,
       { authToken: getToken() },
     );
+    syncSignInUiWithResult(result);
     if (!result.ok) {
       showApiError(errorBanner, result);
       return;
@@ -108,6 +166,7 @@
       { start, end, ...(reason ? { reason } : {}) },
       { authToken: getToken() },
     );
+    syncSignInUiWithResult(result);
     if (!result.ok) {
       showApiError(errorBanner, result);
       return;
@@ -165,6 +224,7 @@
     };
 
     const result = await Api.put(`/api/v1/owner/appointment-types/${typeId}`, payload, { authToken: getToken() });
+    syncSignInUiWithResult(result);
     if (!result.ok) {
       showApiError(errorBanner, result);
       return;
@@ -177,7 +237,10 @@
   document.getElementById("clear-token-button").addEventListener("click", handleClearToken);
   document.getElementById("load-schedule-button").addEventListener("click", handleLoadSchedule);
   document.getElementById("create-block-button").addEventListener("click", handleCreateBlock);
+  document.getElementById("microsoft-signout-form").addEventListener("submit", handleSignOutSubmit);
 
+  handleMicrosoftAuthRedirect();
+  refreshMicrosoftSignInUi();
   refreshTokenStatus();
   loadAppointmentTypes();
 })();

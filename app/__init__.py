@@ -16,14 +16,17 @@ from app.gateways.outlook import FakeOutlookGateway, OutlookGateway
 from app.routes.booking import booking_bp
 from app.routes.frontend import frontend_bp
 from app.routes.health import health_bp
+from app.routes.microsoft_auth import microsoft_auth_bp
 from app.routes.owner import owner_bp
 from app.services.availability import AvailabilityService
 from app.services.business_rules import BusinessRulesService
+from app.services.idempotency import IdempotencyStore
 from app.services.intent import (
     FakeIntentInterpreter,
     IntentService,
     OpenAIIntentInterpreter,
 )
+from app.services.rate_limit import RateLimiter
 from app.services.scheduling import SchedulingOrchestrator
 
 
@@ -112,21 +115,30 @@ def create_app(
         appointment_type_store,
     )
 
+    idempotency_store = IdempotencyStore()
+
     orchestrator = SchedulingOrchestrator(
         intent_service=intent_service,
         business_rules=business_rules_service,
         availability_service=availability_service,
         outlook_gateway=gateway,
+        idempotency_store=idempotency_store,
     )
 
     app.extensions["appointment_type_store"] = appointment_type_store
+    app.extensions["idempotency_store"] = idempotency_store
     app.extensions["outlook_gateway"] = gateway
     app.extensions["scheduling_orchestrator"] = orchestrator
+    app.extensions["rate_limiters"] = {
+        "ai": RateLimiter(limit=app.config["RATE_LIMIT_AI_PER_MINUTE"], window_seconds=60),
+        "booking": RateLimiter(limit=app.config["RATE_LIMIT_BOOKING_PER_MINUTE"], window_seconds=60),
+    }
 
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(booking_bp, url_prefix="/api/v1")
     app.register_blueprint(owner_bp, url_prefix="/api/v1")
     app.register_blueprint(frontend_bp)
+    app.register_blueprint(microsoft_auth_bp)
 
     register_error_handlers(app)
 

@@ -21,20 +21,26 @@
     <div class="error-banner" id="error-banner" role="alert"></div>
 
     <section class="card" id="auth-section">
-      <h2>Staff access <span class="badge accent">Placeholder auth</span></h2>
-      <p class="hint">
-        Enter your access token to use the sections below. This is a placeholder for
-        real Microsoft-identity sign-in, which will replace it later.
-      </p>
-      <div class="field-row">
-        <div class="field">
-          <label for="owner-token">Access token</label>
-          <input type="password" id="owner-token" autocomplete="off">
+      <h2>Staff access</h2>
+      <p class="hint" id="microsoft-signin-status">Not signed in.</p>
+      <a href="/auth/microsoft/login"><button type="button" id="microsoft-signin-button">Sign in with Microsoft</button></a>
+      <form method="post" action="/auth/microsoft/logout" id="microsoft-signout-form" hidden>
+        <button type="submit" class="secondary">Sign out</button>
+      </form>
+
+      <details id="dev-token-details">
+        <summary class="hint">Developer/local testing: use a shared access token instead
+          <span class="badge accent">Dev only</span></summary>
+        <div class="field-row">
+          <div class="field">
+            <label for="owner-token">Access token</label>
+            <input type="password" id="owner-token" autocomplete="off">
+          </div>
         </div>
-      </div>
-      <button type="button" class="secondary" id="save-token-button">Save token</button>
-      <button type="button" class="secondary" id="clear-token-button">Clear</button>
-      <p class="hint" id="token-status">No token saved for this browser session.</p>
+        <button type="button" class="secondary" id="save-token-button">Save token</button>
+        <button type="button" class="secondary" id="clear-token-button">Clear</button>
+        <p class="hint" id="token-status">No token saved for this browser session.</p>
+      </details>
     </section>
 
     <section class="card">
