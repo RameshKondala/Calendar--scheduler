@@ -204,14 +204,14 @@ def test_owner_block_is_created_in_graph_as_owner_block(client, graph):
 def test_get_appointment_returns_business_local_time_from_graph(client, graph):
     graph.event_by_id["AAMk-existing"] = graph_event()
 
-    resp = client.get("/api/v1/appointments/AAMk-existing")
+    resp = client.get("/api/v1/appointments/AAMk-existing", headers=OWNER_HEADERS)
 
     assert resp.status_code == 200
     assert resp.get_json()["appointment"]["start"] == LOCAL_NINE_AM
 
 
 def test_get_appointment_missing_in_graph_returns_404(client):
-    resp = client.get("/api/v1/appointments/does-not-exist")
+    resp = client.get("/api/v1/appointments/does-not-exist", headers=OWNER_HEADERS)
 
     assert resp.status_code == 404
     assert resp.get_json()["error"]["code"] == "NOT_FOUND"
