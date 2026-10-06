@@ -89,3 +89,25 @@ class BusinessRulesService:
     def appointment_duration(self, appointment_type: AppointmentType) -> timedelta:
         """The customer-facing duration, excluding the internal buffer."""
         return timedelta(minutes=appointment_type.duration_minutes)
+
+    def ensure_within_business_hours(self, appointment_type: AppointmentType, start: datetime) -> None:
+        """Reject a booking start time that ``/availability`` would never have
+        offered: a closed day, or a time outside business hours once the
+        appointment's own duration is accounted for.
+
+        ``start`` must already be timezone-aware (see ``to_business_time``).
+        Week 4 section 3.6 requires ``start`` to match a valid candidate;
+        only ``/availability`` enforced that until now, so a direct
+        ``POST /appointments`` call could book outside business hours.
+        """
+        local_start = start.astimezone(self.zone)
+        appointment_date = local_start.date()
+
+        if not self._business_hours.is_open_on(appointment_date):
+            raise ValidationError("The business is closed on that date.")
+
+        end_moment = local_start + self.appointment_duration(appointment_type)
+        if end_moment.date() != appointment_date:
+            raise ValidationError("That time is outside business hours for this appointment's duration.")
+        if local_start.time() < self._business_hours.opening_time or end_moment.time() > self._business_hours.closing_time:
+            raise ValidationError("That time is outside business hours for this appointment's duration.")

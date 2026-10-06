@@ -22,6 +22,7 @@ from app.models.schemas import (
     SchedulingIntent,
     SlotOption,
 )
+from app.services.idempotency import IdempotencyStore
 from app.services.availability import AvailabilityService
 from app.services.business_rules import BusinessRulesService
 from app.services.intent import IntentService
@@ -48,11 +49,13 @@ class SchedulingOrchestrator:
         business_rules: BusinessRulesService,
         availability_service: AvailabilityService,
         outlook_gateway: OutlookGateway,
+        idempotency_store: IdempotencyStore | None = None,
     ) -> None:
         self._intent_service = intent_service
         self._business_rules = business_rules
         self._availability_service = availability_service
         self._outlook_gateway = outlook_gateway
+        self._idempotency_store = idempotency_store or IdempotencyStore()
 
     def interpret_request(self, text: str, actor: str, timezone: str) -> SchedulingIntent:
         return self._intent_service.interpret(text=text, actor=actor, timezone=timezone)
@@ -71,9 +74,19 @@ class SchedulingOrchestrator:
         return self._availability_service.find_options(appointment_type, windows, max_options=max_options)
 
     def confirm_booking(self, command: BookingCommand) -> AppointmentResult:
+        cached = self._idempotency_store.get(command.idempotency_key)
+        if cached is not None:
+            # Same key seen before: replay the prior result instead of
+            # writing to Outlook again (section 3.1, Idempotency-Key).
+            return cached
+
         appointment_type = self._business_rules.get_active_appointment_type_by_id(command.appointment_type_id)
         start = self._business_rules.to_business_time(datetime.fromisoformat(command.start_iso))
         end = start + self._business_rules.appointment_duration(appointment_type)
+
+        # Only /availability applied business hours until now; a direct
+        # POST /appointments call must be held to the same rule (Week 4 3.6).
+        self._business_rules.ensure_within_business_hours(appointment_type, start)
 
         # Recheck immediately before write (section 2.2, section 6.6). A
         # concurrent booking that wins the race between this recheck and the
@@ -96,7 +109,9 @@ class SchedulingOrchestrator:
             extra={"outlook_event_id": event.event_id, "appointment_type": appointment_type.code},
         )
 
-        return self._to_result(event)
+        result = self._to_result(event)
+        self._idempotency_store.put(command.idempotency_key, result)
+        return result
 
     def get_appointment(self, event_id: str) -> AppointmentResult | None:
         event = self._outlook_gateway.get_event(event_id)

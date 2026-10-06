@@ -15,7 +15,22 @@ class BaseConfig:
     """Shared defaults. Subclasses override per environment."""
 
     BUSINESS_TIMEZONE = os.environ.get("BUSINESS_TIMEZONE", "America/Chicago")
+
+    # Two supported ways to authenticate as owner (see app/routes/auth.py):
+    # OWNER_ACCESS_TOKEN is a shared-secret shortcut for local dev/CI, and
+    # OWNER_ALLOWED_UPNS is the real path -- Microsoft sign-in (MSAL) plus
+    # an allow-list of permitted work/school account usernames.
     OWNER_ACCESS_TOKEN = os.environ.get("OWNER_ACCESS_TOKEN")
+    OWNER_ALLOWED_UPNS = frozenset(
+        upn.strip().lower()
+        for upn in os.environ.get("OWNER_ALLOWED_UPNS", "").split(",")
+        if upn.strip()
+    )
+
+    # Signs the Flask session cookie and appointment confirmation tokens.
+    # The default is fine for local dev only; production must set a real
+    # secret via the environment.
+    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-only-insecure-secret-key-change-me")
 
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
     OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
@@ -45,6 +60,8 @@ class TestingConfig(BaseConfig):
     TESTING = True
     OUTLOOK_GATEWAY = "fake"
     OWNER_ACCESS_TOKEN = "test-owner-token"
+    OWNER_ALLOWED_UPNS = frozenset({"owner@example.com"})
+    SECRET_KEY = "test-only-secret-key"
 
 
 class ProductionConfig(BaseConfig):

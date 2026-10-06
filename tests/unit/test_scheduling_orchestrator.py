@@ -26,7 +26,7 @@ def orchestrator():
     return SchedulingOrchestrator(intent_service, business_rules, availability, gateway), gateway
 
 
-def _command(start_iso: str) -> BookingCommand:
+def _command(start_iso: str, idempotency_key: str | None = None) -> BookingCommand:
     return BookingCommand(
         customer_name="Jane Doe",
         customer_email="jane@example.com",
@@ -34,6 +34,7 @@ def _command(start_iso: str) -> BookingCommand:
         appointment_type_id=1,
         start_iso=start_iso,
         notes=None,
+        idempotency_key=idempotency_key,
     )
 
 
@@ -88,3 +89,30 @@ def test_create_owner_block_rejects_invalid_range(orchestrator):
     end = datetime(2026, 9, 21, 9, 0, tzinfo=CHICAGO)
     with pytest.raises(ValidationError):
         scheduler.create_owner_block(start, end, "test block")
+
+
+def test_confirm_booking_with_repeated_idempotency_key_does_not_write_twice(orchestrator):
+    scheduler, gateway = orchestrator
+    first = scheduler.confirm_booking(_command("2026-09-21T09:00:00", idempotency_key="retry-key-1"))
+    second = scheduler.confirm_booking(_command("2026-09-21T09:00:00", idempotency_key="retry-key-1"))
+
+    assert second.outlook_event_id == first.outlook_event_id
+    assert len(gateway.list_events(
+        datetime(2026, 9, 21, 0, 0, tzinfo=CHICAGO),
+        datetime(2026, 9, 22, 0, 0, tzinfo=CHICAGO),
+    )) == 1
+
+
+def test_confirm_booking_without_idempotency_key_books_independently(orchestrator):
+    scheduler, _gateway = orchestrator
+    first = scheduler.confirm_booking(_command("2026-09-21T09:00:00"))
+    # A different slot, no key on either call -- these are two real, distinct bookings.
+    second = scheduler.confirm_booking(_command("2026-09-21T11:00:00"))
+    assert first.outlook_event_id != second.outlook_event_id
+
+
+def test_different_idempotency_keys_both_book(orchestrator):
+    scheduler, _gateway = orchestrator
+    first = scheduler.confirm_booking(_command("2026-09-21T09:00:00", idempotency_key="key-a"))
+    second = scheduler.confirm_booking(_command("2026-09-21T11:00:00", idempotency_key="key-b"))
+    assert first.outlook_event_id != second.outlook_event_id

@@ -78,10 +78,16 @@ def test_full_booking_flow_and_conflict(client):
     body = first.get_json()
     assert body["appointment"]["status"] == "confirmed"
     event_id = body["appointment"]["outlook_event_id"]
+    token = body["confirmation_token"]
 
-    # Re-fetching the same appointment succeeds.
-    get_resp = client.get(f"/api/v1/appointments/{event_id}")
+    # Re-fetching with the confirmation token from the booking succeeds...
+    get_resp = client.get(f"/api/v1/appointments/{event_id}?token={token}")
     assert get_resp.status_code == 200
+    # ...but without it, or with one issued for a different event, it's refused.
+    assert client.get(f"/api/v1/appointments/{event_id}").status_code == 401
+    other_booking = client.post("/api/v1/appointments", json={**booking_payload, "start": "2026-09-21T11:00:00"})
+    other_token = other_booking.get_json()["confirmation_token"]
+    assert client.get(f"/api/v1/appointments/{event_id}?token={other_token}").status_code == 401
 
     # Booking the exact same slot again conflicts.
     second = client.post("/api/v1/appointments", json=booking_payload)
@@ -112,10 +118,23 @@ def test_post_appointments_invalid_email_rejected(client):
     assert resp.status_code == 400
 
 
-def test_get_unknown_appointment_returns_404(client):
-    resp = client.get("/api/v1/appointments/does-not-exist")
+def test_get_unknown_appointment_returns_404_for_owner(client, owner_headers):
+    resp = client.get("/api/v1/appointments/does-not-exist", headers=owner_headers)
     assert resp.status_code == 404
     assert resp.get_json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_get_appointment_without_token_or_owner_auth_is_unauthorized_even_if_it_does_not_exist(client):
+    """An unauthenticated caller gets 401 regardless of whether the id
+    exists -- existence must not leak to someone with no credential."""
+    resp = client.get("/api/v1/appointments/does-not-exist")
+    assert resp.status_code == 401
+    assert resp.get_json()["error"]["code"] == "UNAUTHORIZED"
+
+
+def test_get_appointment_with_wrong_token_is_unauthorized(client):
+    resp = client.get("/api/v1/appointments/some-event-id?token=not-a-real-token")
+    assert resp.status_code == 401
 
 
 def test_unknown_route_returns_standard_404_contract(client):
@@ -124,3 +143,58 @@ def test_unknown_route_returns_standard_404_contract(client):
     body = resp.get_json()
     assert body["error"]["code"] == "NOT_FOUND"
     assert "request_id" in body["error"]
+
+
+def test_post_appointments_rejects_start_outside_business_hours(client):
+    payload = {
+        "customer": {"name": "Jane Doe", "email": "jane@example.com"},
+        "appointment_type_id": 1,
+        "start": "2026-09-21T05:00:00",  # Monday, long before opening
+        "confirmation": True,
+    }
+    resp = client.post("/api/v1/appointments", json=payload)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_post_appointments_rejects_start_on_closed_day(client):
+    payload = {
+        "customer": {"name": "Jane Doe", "email": "jane@example.com"},
+        "appointment_type_id": 1,
+        "start": "2026-09-20T09:00:00",  # Sunday
+        "confirmation": True,
+    }
+    resp = client.post("/api/v1/appointments", json=payload)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_repeated_idempotency_key_replays_the_same_booking_not_a_conflict(client):
+    payload = {
+        "customer": {"name": "Jane Doe", "email": "jane@example.com"},
+        "appointment_type_id": 1,
+        "start": "2026-09-21T09:00:00",
+        "confirmation": True,
+    }
+    headers = {"Idempotency-Key": "retry-key-abc"}
+
+    first = client.post("/api/v1/appointments", json=payload, headers=headers)
+    second = client.post("/api/v1/appointments", json=payload, headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.get_json()["appointment"]["outlook_event_id"] == second.get_json()["appointment"]["outlook_event_id"]
+
+
+def test_same_booking_without_idempotency_key_header_conflicts_on_retry(client):
+    payload = {
+        "customer": {"name": "Jane Doe", "email": "jane@example.com"},
+        "appointment_type_id": 1,
+        "start": "2026-09-21T09:00:00",
+        "confirmation": True,
+    }
+    first = client.post("/api/v1/appointments", json=payload)
+    second = client.post("/api/v1/appointments", json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 409

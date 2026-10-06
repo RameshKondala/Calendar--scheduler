@@ -10,7 +10,7 @@ import uuid
 from flask import Blueprint, current_app, jsonify, request
 from marshmallow import ValidationError as MarshmallowValidationError
 
-from app.errors.handlers import NotFoundError, ValidationError
+from app.errors.handlers import NotFoundError, UnauthorizedError, ValidationError
 from app.models.schemas import (
     AppointmentCreateSchema,
     AppointmentResult,
@@ -18,6 +18,9 @@ from app.models.schemas import (
     BookingCommand,
     IntentRequestSchema,
 )
+from app.routes.auth import is_owner_request
+from app.services.rate_limit import rate_limited
+from app.services import confirmation_tokens
 
 booking_bp = Blueprint("booking", __name__)
 
@@ -41,6 +44,7 @@ def _serialize_appointment(result: AppointmentResult) -> dict:
 
 
 @booking_bp.post("/intent")
+@rate_limited("ai")
 def post_intent():
     payload = request.get_json(silent=True) or {}
     try:
@@ -72,6 +76,7 @@ def post_intent():
 
 
 @booking_bp.post("/availability")
+@rate_limited("ai")
 def post_availability():
     payload = request.get_json(silent=True) or {}
     try:
@@ -101,6 +106,7 @@ def post_availability():
 
 
 @booking_bp.post("/appointments")
+@rate_limited("booking")
 def post_appointments():
     payload = request.get_json(silent=True) or {}
     try:
@@ -124,15 +130,31 @@ def post_appointments():
     )
 
     result = _orchestrator().confirm_booking(command)
+    token = confirmation_tokens.issue(current_app.config["SECRET_KEY"], result.outlook_event_id)
 
     return (
-        jsonify({"appointment": _serialize_appointment(result), "message": "Your appointment is confirmed."}),
+        jsonify({
+            "appointment": _serialize_appointment(result),
+            "confirmation_token": token,
+            "message": "Your appointment is confirmed. Keep the confirmation_token to look this booking up later.",
+        }),
         201,
     )
 
 
 @booking_bp.get("/appointments/<event_id>")
 def get_appointment(event_id: str):
+    token = request.args.get("token") or request.headers.get("X-Confirmation-Token")
+    has_guest_token = confirmation_tokens.verify(current_app.config["SECRET_KEY"], token, event_id)
+
+    # Week 4 section 3.3: this endpoint is "guest token or owner" -- the
+    # Outlook event id alone is not authorization to read a booking.
+    if not (has_guest_token or is_owner_request()):
+        raise UnauthorizedError(
+            "Provide the confirmation_token from your booking (as ?token=... or "
+            "X-Confirmation-Token), or sign in as the owner."
+        )
+
     result = _orchestrator().get_appointment(event_id)
     if result is None:
         raise NotFoundError("No appointment was found with that id.")

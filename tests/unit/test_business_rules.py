@@ -72,3 +72,36 @@ def test_to_business_time_converts_aware_input_to_the_same_instant(business_rule
 def test_to_business_time_follows_daylight_saving_offsets(business_rules):
     winter = business_rules.to_business_time(datetime(2026, 12, 15, 9, 0))
     assert winter.isoformat() == "2026-12-15T09:00:00-06:00"
+
+
+def test_ensure_within_business_hours_accepts_a_valid_slot(business_rules):
+    appointment_type = business_rules.get_active_appointment_type("initial_fitting")
+    start = business_rules.to_business_time(datetime(2026, 9, 21, 9, 0))  # Monday, within hours
+    business_rules.ensure_within_business_hours(appointment_type, start)  # does not raise
+
+
+def test_ensure_within_business_hours_rejects_closed_day(business_rules):
+    appointment_type = business_rules.get_active_appointment_type("initial_fitting")
+    start = business_rules.to_business_time(datetime(2026, 9, 20, 9, 0))  # Sunday
+    with pytest.raises(ValidationError):
+        business_rules.ensure_within_business_hours(appointment_type, start)
+
+
+def test_ensure_within_business_hours_rejects_before_opening(business_rules):
+    appointment_type = business_rules.get_active_appointment_type("initial_fitting")
+    start = business_rules.to_business_time(datetime(2026, 9, 21, 7, 0))  # before 9am
+    with pytest.raises(ValidationError):
+        business_rules.ensure_within_business_hours(appointment_type, start)
+
+
+def test_ensure_within_business_hours_rejects_when_duration_runs_past_closing(business_rules):
+    appointment_type = business_rules.get_active_appointment_type("initial_fitting")
+    start = business_rules.to_business_time(datetime(2026, 9, 21, 17, 45))  # 45-min type, closes at 18:00
+    with pytest.raises(ValidationError):
+        business_rules.ensure_within_business_hours(appointment_type, start)
+
+
+def test_ensure_within_business_hours_accepts_slot_ending_exactly_at_closing(business_rules):
+    appointment_type = business_rules.get_active_appointment_type("pickup")  # 15 min
+    start = business_rules.to_business_time(datetime(2026, 9, 21, 17, 45))
+    business_rules.ensure_within_business_hours(appointment_type, start)  # does not raise

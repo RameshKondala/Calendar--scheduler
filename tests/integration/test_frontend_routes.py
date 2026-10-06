@@ -27,6 +27,7 @@ def test_owner_page_renders(client):
     body = resp.get_data(as_text=True)
     assert "Staff Portal" in body
     assert "owner.js" in body
+    assert '/auth/microsoft/login' in body  # real sign-in, not just a token box
 
 
 def test_customer_page_links_to_owner_page(client):

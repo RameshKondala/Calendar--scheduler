@@ -27,6 +27,10 @@ const Api = (() => {
       response = await fetch(path, {
         method: options.method || "GET",
         headers,
+        // Explicit, not just relying on the default: owner requests rely on
+        // the session cookie set by /auth/microsoft/callback when signed in
+        // with Microsoft, alongside (or instead of) the authToken header.
+        credentials: "same-origin",
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       });
     } catch (networkError) {
